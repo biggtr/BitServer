@@ -62,7 +62,7 @@ int main(int argc, char** argv)
         fprintf(stderr, "Unlucky getaddrinfo was not initialized correctly..! getaddrinfo: %s\n", gai_strerror(addrInfoStatus));
         return 1;
     }
-    for(p = res; p != NULL; p = res->ai_next)
+    for(p = res; p != NULL; p = p->ai_next)
     {
         if((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
         {
