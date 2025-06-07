@@ -1,5 +1,4 @@
-#include <csignal>
-#include <cstdlib>
+#include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stddef.h>
@@ -14,6 +13,7 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include "Http.h"
 
 #define TRUE 1
 #define FALSE 0
@@ -44,6 +44,12 @@ void sigchld_handler(int s)
 }
 int main(int argc, char** argv)
 {
+    if(argc != 2)
+    {
+        fprintf(stderr, "Usage : server port\n");
+        exit(1);
+    }
+    char* port = argv[1];
     int sockfd, newfd;
     int yes = 1;
     
@@ -53,10 +59,10 @@ int main(int argc, char** argv)
     char ip_address[INET6_ADDRSTRLEN];
     errno = 0;
     memset(&hint, 0, sizeof(hint));
-    hint.ai_family = AF_INET;
+    hint.ai_family = AF_UNSPEC;
     hint.ai_socktype = SOCK_STREAM;
     hint.ai_flags = AI_PASSIVE;
-    int addrInfoStatus = getaddrinfo(NULL, PORT, &hint, &res);
+    int addrInfoStatus = getaddrinfo(NULL, port, &hint, &res);
     if(addrInfoStatus != 0)
     {
         fprintf(stderr, "Unlucky getaddrinfo was not initialized correctly..! getaddrinfo: %s\n", gai_strerror(addrInfoStatus));
@@ -120,9 +126,55 @@ int main(int argc, char** argv)
 
         if(!fork()) //fork returns 0 if its child process if(!0 == true) means it's child
         {
-            const char* msg = "Hello Client\n";
+            HttpRequest httpRequest;
+            char requestBuffer[MAX_HTTP_REQUEST_SIZE];
+            char tempLine[1024];
+            int totalBytesRead = 0;
+            while(TRUE)
+            {
+                if(totalBytesRead >= MAX_HTTP_REQUEST_SIZE - 1)
+                {
+                    fprintf(stderr, "HTTP Request is bigger than the normal size..!\n"); //error 413 entity is to large
+                    continue;
+                }
+                ssize_t BytesReceived = recv(newfd, tempLine, sizeof(tempLine), 0);
+                if(BytesReceived == 0)
+                {
+                    printf("Client Closed Connection..!");
+                    exit(1);
+                }
+                if(BytesReceived == -1)
+                {
+                    perror("recv");
+                    exit(1);
+                }
+                memcpy(requestBuffer + totalBytesRead, tempLine, BytesReceived);
+                totalBytesRead += BytesReceived;
+                requestBuffer[totalBytesRead] = '\0'; // adding the null term after every line read from the request
+                if(strstr(requestBuffer, "\r\n\r\n"))
+                {
+                    char httpMethod[8];
+                    char httpPath[2048];
+                    char httpVersion[16];
+                    sscanf(requestBuffer, "%7s %2047s %15s", httpMethod, httpPath, httpVersion); // change it to manual parsing in future to prevent potential bugs
+                    httpRequest.RequestLine.Method = GetHttpMethodFromStr(httpMethod);
+                    printf("httpMethod: %s, httpPath: %s, httpVersion: %s\n", httpMethod, httpPath, httpVersion);
+
+                    break;
+                }
+            }
+             
+            printf("request body : %s\n", requestBuffer);
+            char response[1024];
+            const char htmlBody[50] = "<p> Hello from server..!</p>";
+            snprintf(response, sizeof(response), "HTTP/1.1 %d OK\r\n"
+                "Content-Type: text/html\r\n"
+                "Content-Length: %lu\r\n"
+                "\r\n"
+                "%s\r\n"
+                ,(unsigned int)HTML_STATUS::OK, strlen(htmlBody), htmlBody);
             close(sockfd);
-            if(send(newfd, msg, strlen(msg), 0) == -1)
+            if(send(newfd, response, strlen(response), 0) == -1)
                 perror("Server: Send");
 
             close(newfd);
