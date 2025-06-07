@@ -1,24 +1,15 @@
-#include <signal.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <stddef.h>
-#include <netinet/in.h>
-#include <stdio.h>
-#include <string.h>
-#include <stddef.h>
+#include "Defines.h"
+#include <cstdio>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <netinet/in.h>
 #include <signal.h>
 #include "Http.h"
 
-#define TRUE 1
-#define FALSE 0
-#define PORT "5566"
-#define BACKLOG 5
 
 
 void* get_in_addr(struct sockaddr* sockAddr)
@@ -128,43 +119,26 @@ int main(int argc, char** argv)
         {
             HttpRequest httpRequest;
             char requestBuffer[MAX_HTTP_REQUEST_SIZE];
-            char tempLine[1024];
             int totalBytesRead = 0;
-            while(TRUE)
-            {
-                if(totalBytesRead >= MAX_HTTP_REQUEST_SIZE - 1)
-                {
-                    fprintf(stderr, "HTTP Request is bigger than the normal size..!\n"); //error 413 entity is to large
-                    continue;
-                }
-                ssize_t BytesReceived = recv(newfd, tempLine, sizeof(tempLine), 0);
-                if(BytesReceived == 0)
-                {
-                    printf("Client Closed Connection..!");
-                    exit(1);
-                }
-                if(BytesReceived == -1)
-                {
-                    perror("recv");
-                    exit(1);
-                }
-                memcpy(requestBuffer + totalBytesRead, tempLine, BytesReceived);
-                totalBytesRead += BytesReceived;
-                requestBuffer[totalBytesRead] = '\0'; // adding the null term after every line read from the request
-                if(strstr(requestBuffer, "\r\n\r\n"))
-                {
-                    char httpMethod[8];
-                    char httpPath[2048];
-                    char httpVersion[16];
-                    sscanf(requestBuffer, "%7s %2047s %15s", httpMethod, httpPath, httpVersion); // change it to manual parsing in future to prevent potential bugs
-                    httpRequest.RequestLine.Method = GetHttpMethodFromStr(httpMethod);
-                    printf("httpMethod: %s, httpPath: %s, httpVersion: %s\n", httpMethod, httpPath, httpVersion);
 
+            HTTP_READ_STATUS httpReadStatus = ReadHttpRequest(newfd, requestBuffer, totalBytesRead);
+            
+
+            switch (httpReadStatus) 
+            {
+
+                case HTTP_READ_STATUS::SUCCESS:
+                    ParseHttpRequest(httpRequest, requestBuffer);
                     break;
-                }
+                case HTTP_READ_STATUS::ERROR:
+                    fprintf(stderr, "Failed to read request from client.\n");
+                    break;
+                case HTTP_READ_STATUS::CLIENT_CLOSED_CONNECTION:
+                    printf("Client closed connection before sending a full request.\n"); 
+                    break;
+                case HTTP_READ_STATUS::BUFFER_FULL:
+                  break;
             }
-             
-            printf("request body : %s\n", requestBuffer);
             char response[1024];
             const char htmlBody[50] = "<p> Hello from server..!</p>";
             snprintf(response, sizeof(response), "HTTP/1.1 %d OK\r\n"
@@ -172,7 +146,7 @@ int main(int argc, char** argv)
                 "Content-Length: %lu\r\n"
                 "\r\n"
                 "%s\r\n"
-                ,(unsigned int)HTML_STATUS::OK, strlen(htmlBody), htmlBody);
+                ,(unsigned int)HTTP_STATUS::OK, strlen(htmlBody), htmlBody);
             close(sockfd);
             if(send(newfd, response, strlen(response), 0) == -1)
                 perror("Server: Send");

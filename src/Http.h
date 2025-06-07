@@ -1,9 +1,11 @@
 #pragma once
+#include <cstdint>
 #include <stdint.h>
+#include <unistd.h>
 
 #define MAX_HTTP_REQUEST_SIZE 8192
 
-enum class HTML_STATUS : uint16_t
+enum class HTTP_STATUS : uint16_t
 {
     // Successful Responses
     OK = 200,
@@ -23,15 +25,21 @@ enum class HTML_STATUS : uint16_t
     // Server Error Responses
     INTERNAL_SERVER_ERROR = 500,
 };
+enum class HTTP_READ_STATUS : uint8_t
+{
+    SUCCESS,
+    ERROR,
+    CLIENT_CLOSED_CONNECTION,
+    BUFFER_FULL,
+};
 
-enum class HTTP_METHOD
+enum class HTTP_METHOD : uint8_t
 {
     GET,
     POST,
     PUT,
     DELETE,
-    NONE
-
+    NONE,
 };
 struct RequestLine
 {
@@ -47,4 +55,6 @@ struct HttpRequest
 };
 
 
+HTTP_READ_STATUS ReadHttpRequest(int sockfd, char* outRequestBuffer, int &outTotalBytesRead);
+bool ParseHttpRequest(HttpRequest& request, char* requestBuffer);
 HTTP_METHOD  GetHttpMethodFromStr(const char* methodStr);
