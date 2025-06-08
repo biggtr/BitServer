@@ -1,6 +1,7 @@
 #include "Defines.h"
 #include <cstdio>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include "Http.h"
 
@@ -60,17 +61,45 @@ HTTP_READ_STATUS ReadHttpRequest(int sockfd, char* outRequestBuffer, int &outTot
         }
     }
 }
+// TODO: change it to manual parsing to handle spaces and solve other bugs 
 bool ParseHttpRequest(HttpRequest &request, char* requestBuffer)
 {
-    if(strstr(requestBuffer, "\r\n\r\n"))
+    char* endOfHeaders = strstr(requestBuffer, "\r\n\r\n");
+
+    if(!endOfHeaders)
     {
-        char httpMethod[8];
-        char httpPath[2048];
-        char httpVersion[16];
-        sscanf(requestBuffer, "%7s %2047s %15s", httpMethod, httpPath, httpVersion); // change it to manual parsing in future to prevent potential bugs
-        request.RequestLine.Method = GetHttpMethodFromStr(httpMethod);
-        printf("httpMethod: %s, httpPath: %s, httpVersion: %s\n", httpMethod, httpPath, httpVersion);
-        return TRUE;
+        return FALSE; // incomplete request
     }
-    return FALSE;
+    char* firstLineEnd = strstr(requestBuffer, "\r\n"); // get the first line to correctly parse the request line
+    if(!firstLineEnd)
+    {
+        return FALSE; //didn't find the first request line (bad request)
+    }
+    char savedfirstLineChar = *firstLineEnd;
+    *firstLineEnd = '\0'; // replace \r with \0 to tell sscanf to stop reading when it reachs \r in the first line \r\n
+
+    char httpMethod[8];
+    char httpPath[2048];
+    char httpVersion[16];
+    int requestLineParsed = sscanf(requestBuffer, "%7s %2047s %15s", httpMethod, httpPath, httpVersion); 
+    if(requestLineParsed != 3)
+    {
+        return FALSE; // didn't parse the request line correctly maybe user sent some malicious code  
+    }
+    *firstLineEnd = savedfirstLineChar;
+    request.RequestLine.Method = GetHttpMethodFromStr(httpMethod);
+    strcpy(request.RequestLine.URL, httpPath);
+    strcpy(request.RequestLine.HttpVersion, httpVersion);
+    printf("httpMethod: %s, httpPath: %s, httpVersion: %s\n", httpMethod, httpPath, httpVersion);
+
+    // TODO: parse the rest of the request headers
+    char* headerStart = firstLineEnd + 2; // skipping the firstLineEnd \r\n to get to the first header;
+    char* endHost = strchr(headerStart, '\r');
+    int len = endHost - headerStart;
+    char host[256];
+    host[len] = '\0';
+    strncpy(host, headerStart, len);
+
+    printf("%s\n", host);
+    return TRUE;
 }

@@ -12,7 +12,7 @@
 
 
 
-void* get_in_addr(struct sockaddr* sockAddr)
+void* GetInAddress(struct sockaddr* sockAddr)
 {
     if(sockAddr->sa_family == AF_INET)
     {
@@ -23,7 +23,7 @@ void* get_in_addr(struct sockaddr* sockAddr)
         return &((struct sockaddr_in6*)sockAddr)->sin6_addr;
     }
 }
-void sigchld_handler(int s)
+void SignalChildHandler(int s)
 {
     int savedErrno = errno;
 
@@ -45,9 +45,9 @@ int main(int argc, char** argv)
     int yes = 1;
     
     struct addrinfo hint, *res, *p;
-    struct sockaddr_storage theiraddr;
-    struct sigaction sa;
-    char ip_address[INET6_ADDRSTRLEN];
+    struct sockaddr_storage theirAddress;
+    struct sigaction signalAction;
+    char ipAddress[INET6_ADDRSTRLEN];
     errno = 0;
     memset(&hint, 0, sizeof(hint));
     hint.ai_family = AF_UNSPEC;
@@ -92,27 +92,27 @@ int main(int argc, char** argv)
         perror("listen");
         exit(1);
     }    
-    sa.sa_handler = sigchld_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if(sigaction(SIGCHLD, &sa, NULL) == -1)
+    signalAction.sa_handler = SignalChildHandler;
+    sigemptyset(&signalAction.sa_mask);
+    signalAction.sa_flags = SA_RESTART;
+    if(sigaction(SIGCHLD, &signalAction, NULL) == -1)
     {
         perror("sigaction");
         exit(1);
     }
 
-    printf("server: waiting for connections...\n");
+    printf("Server: waiting for connections...\n");
     while(TRUE)
     {
-        socklen_t inaddr_size = sizeof(theiraddr);
-        if((newfd = accept(sockfd, (struct sockaddr*)&theiraddr, &inaddr_size)) == -1)
+        socklen_t inaddrSize = sizeof(theirAddress);
+        if((newfd = accept(sockfd, (struct sockaddr*)&theirAddress, &inaddrSize)) == -1)
         {
             perror("accept");
             continue;
         }
 
-        inet_ntop(theiraddr.ss_family, get_in_addr((struct sockaddr*)&theiraddr), ip_address, sizeof(ip_address));
-        printf("Server Got Connection from %s client\n", ip_address);
+        inet_ntop(theirAddress.ss_family, GetInAddress((struct sockaddr*)&theirAddress), ipAddress, sizeof(ipAddress));
+        printf("Server Got Connection from %s client\n", ipAddress);
 
 
         if(!fork()) //fork returns 0 if its child process if(!0 == true) means it's child
@@ -126,7 +126,6 @@ int main(int argc, char** argv)
 
             switch (httpReadStatus) 
             {
-
                 case HTTP_READ_STATUS::SUCCESS:
                     ParseHttpRequest(httpRequest, requestBuffer);
                     break;

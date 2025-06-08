@@ -43,10 +43,17 @@ enum class HTTP_METHOD : uint8_t
 };
 struct RequestLine
 {
-    char* URL;
+    char URL[2048];
+    char HttpVersion[16];
     HTTP_METHOD Method;
-    int HttpVersionMajor;
-    int HttpVersionMinor;
+};
+struct RequestHeaders
+{
+    char Host;
+    char UserAgent;
+    char Accept;
+    char AcceptLanguage;
+    char Connection[30];
 };
 struct HttpRequest
 {
