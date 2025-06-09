@@ -47,21 +47,26 @@ struct RequestLine
     char HttpVersion[16];
     HTTP_METHOD Method;
 };
-struct RequestHeaders
+struct RequestHeader
 {
-    char Host;
-    char UserAgent;
-    char Accept;
-    char AcceptLanguage;
-    char Connection[30];
+    char Name[64];
+    char Value[256];
 };
 struct HttpRequest
 {
-    RequestLine RequestLine;
+    RequestLine ReqLine;
+    RequestHeader Headers[50];
+};
+struct HttpResponse 
+{
+    HTTP_STATUS Status;
+    char* HtmlFile;
+    long ContentSize;
     
 };
-
 
 HTTP_READ_STATUS ReadHttpRequest(int sockfd, char* outRequestBuffer, int &outTotalBytesRead);
 bool ParseHttpRequest(HttpRequest& request, char* requestBuffer);
 HTTP_METHOD  GetHttpMethodFromStr(const char* methodStr);
+
+HttpResponse HandleHttpRequest(HttpRequest& request);

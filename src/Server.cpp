@@ -1,5 +1,7 @@
 #include "Defines.h"
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -138,24 +140,35 @@ int main(int argc, char** argv)
                 case HTTP_READ_STATUS::BUFFER_FULL:
                   break;
             }
-            char response[1024];
-            const char htmlBody[50] = "<p> Hello from server..!</p>";
-            snprintf(response, sizeof(response), "HTTP/1.1 %d OK\r\n"
+
+            HttpResponse response = HandleHttpRequest(httpRequest);
+            size_t headersSize = 
+            snprintf(NULL, 0, "HTTP/1.1 %d \r\n"
                 "Content-Type: text/html\r\n"
                 "Content-Length: %lu\r\n"
                 "\r\n"
-                "%s\r\n"
-                ,(unsigned int)HTTP_STATUS::OK, strlen(htmlBody), htmlBody);
+                ,(uint16_t)response.Status, response.ContentSize);
+            size_t totalResponseSize = response.ContentSize + headersSize;
+            char* responseToSend = (char*)malloc(totalResponseSize);
+            int headersWritten = sprintf(responseToSend, "HTTP/1.1 %d \r\n"
+                "Content-Type: text/html\r\n"
+                "Content-Length: %lu\r\n"
+                "\r\n"
+                ,(uint16_t)response.Status, response.ContentSize);
+            memcpy(responseToSend + headersWritten, response.HtmlFile, response.ContentSize);
+
             close(sockfd);
-            if(send(newfd, response, strlen(response), 0) == -1)
+            if(send(newfd, responseToSend, totalResponseSize, 0) == -1)
                 perror("Server: Send");
 
             close(newfd);
+            free(response.HtmlFile);
             exit(0);
         }
-        close(newfd); // close the new socket for with the client in the parent process
+        close(newfd); 
     }
 
+    
    
     return 0;
 }
