@@ -119,6 +119,7 @@ int main(int argc, char** argv)
 
         if(!fork()) //fork returns 0 if its child process if(!0 == true) means it's child
         {
+            close(sockfd);
             HttpRequest httpRequest;
             char requestBuffer[MAX_HTTP_REQUEST_SIZE];
             int totalBytesRead = 0;
@@ -142,27 +143,9 @@ int main(int argc, char** argv)
             }
 
             HttpResponse response = HandleHttpRequest(httpRequest);
-            size_t headersSize = 
-            snprintf(NULL, 0, "HTTP/1.1 %d \r\n"
-                "Content-Type: text/html\r\n"
-                "Content-Length: %lu\r\n"
-                "\r\n"
-                ,(uint16_t)response.Status, response.ContentSize);
-            size_t totalResponseSize = response.ContentSize + headersSize;
-            char* responseToSend = (char*)malloc(totalResponseSize);
-            int headersWritten = sprintf(responseToSend, "HTTP/1.1 %d \r\n"
-                "Content-Type: text/html\r\n"
-                "Content-Length: %lu\r\n"
-                "\r\n"
-                ,(uint16_t)response.Status, response.ContentSize);
-            memcpy(responseToSend + headersWritten, response.HtmlFile, response.ContentSize);
-
-            close(sockfd);
-            if(send(newfd, responseToSend, totalResponseSize, 0) == -1)
-                perror("Server: Send");
-
+            SendHttpResponse(newfd, response);
+            CleanupHttpRequest(response);
             close(newfd);
-            free(response.HtmlFile);
             exit(0);
         }
         close(newfd); 
@@ -170,5 +153,6 @@ int main(int argc, char** argv)
 
     
    
+    close(sockfd);
     return 0;
 }

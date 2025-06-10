@@ -18,10 +18,11 @@ enum class HTTP_STATUS : uint16_t
     //
     // Client Error Responses
     BAD_REQUEST = 400,
+    FORBIDDEN = 403,
     NOT_FOUND = 404,
     METHOD_NOT_ALLOWED = 405,
     REQUEST_IS_BIG = 413,
-
+    URI_TOO_LONG = 414,
     // Server Error Responses
     INTERNAL_SERVER_ERROR = 500,
 };
@@ -60,9 +61,9 @@ struct HttpRequest
 struct HttpResponse 
 {
     HTTP_STATUS Status;
-    char* HtmlFile;
+    char* Content;
     long ContentSize;
-    
+    const char* ContentType;
 };
 
 HTTP_READ_STATUS ReadHttpRequest(int sockfd, char* outRequestBuffer, int &outTotalBytesRead);
@@ -70,3 +71,10 @@ bool ParseHttpRequest(HttpRequest& request, char* requestBuffer);
 HTTP_METHOD  GetHttpMethodFromStr(const char* methodStr);
 
 HttpResponse HandleHttpRequest(HttpRequest& request);
+HttpResponse HandleGetRequest(const char* url);
+HttpResponse HandlePostRequest(HttpRequest& request);
+
+void SendHttpResponse(int sockfd, HttpResponse& response);
+void CleanupHttpRequest(HttpResponse& response);
+
+const char* GetStatusText(HTTP_STATUS status);

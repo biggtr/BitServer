@@ -82,6 +82,7 @@ bool ParseHttpRequest(HttpRequest &request, char* requestBuffer)
     {
         return FALSE; // didn't parse the request line correctly maybe user sent some malicious code  
     }
+    TOLOWER(httpPath);
     *firstLineEnd = savedfirstLineChar;
     request.ReqLine.Method = GetHttpMethodFromStr(httpMethod);
     strcpy(request.ReqLine.URL, httpPath);
@@ -101,7 +102,7 @@ bool ParseHttpRequest(HttpRequest &request, char* requestBuffer)
         strncpy(request.Headers[headerNumber].Value, headerValueStart, headerValueLen);
         request.Headers[headerNumber].Name[headerNameLen] = '\0';
         request.Headers[headerNumber].Value[headerValueLen] = '\0';
-        printf("%s %s\n", request.Headers[headerNumber].Name, request.Headers[headerNumber].Value);
+        // printf("%s %s\n", request.Headers[headerNumber].Name, request.Headers[headerNumber].Value);
         headerNumber++;
         headerStart = headerEnd + 2;
         if(headerStart >= endOfHeaders)
@@ -115,40 +116,13 @@ bool ParseHttpRequest(HttpRequest &request, char* requestBuffer)
 // TODO: Change from ffamily(stdio) to syscalls for performance 
 HttpResponse HandleHttpRequest(HttpRequest& request)
 {
-    // TODO: remove this logic from here and handle it inside GET
-    HttpResponse response;
-    const char* fileName = strcmp(request.ReqLine.URL, "/") == 0 ? "index.html" : request.ReqLine.URL;
-    char finalFileName[100];
-    snprintf(finalFileName, sizeof(finalFileName), "../html/%s", fileName);
-    FILE* htmlFile = fopen(finalFileName, "r");
-    if(htmlFile == NULL)
-    {
-        perror("fopen");
-    }
-    if(fseek(htmlFile, 0, SEEK_END) == -1)
-    {
-        perror("fseek:");
-    }
-    long htmlBytesNum = ftell(htmlFile);
-    printf("htmlBytesNum: %lu", htmlBytesNum);
-    response.HtmlFile = (char*)malloc(htmlBytesNum + 1); // 1 for null term
-    fseek(htmlFile, 0, SEEK_SET);
-    
-    size_t bytesRead = fread(response.HtmlFile, sizeof(char), htmlBytesNum, htmlFile);
-    if(bytesRead != htmlBytesNum)
-    {
-        fprintf(stderr, "Error reading file\n");
-        free(response.HtmlFile); 
-        fclose(htmlFile);
-    }
-    response.HtmlFile[htmlBytesNum] = '\0';
-    response.Status = HTTP_STATUS::OK;
-    response.ContentSize = htmlBytesNum;
-    printf("%s\n", response.HtmlFile);
+    HttpResponse response{};
 
     switch (request.ReqLine.Method) 
     {
         case HTTP_METHOD::GET:
+            response = HandleGetRequest(request.ReqLine.URL);
+            break;
         case HTTP_METHOD::POST:
         case HTTP_METHOD::PUT:
         case HTTP_METHOD::DELETE:
@@ -159,3 +133,143 @@ HttpResponse HandleHttpRequest(HttpRequest& request)
 
 }
 
+HttpResponse HandleGetRequest(const char* url)
+{
+
+    HttpResponse response;
+    response.ContentType = "text/html";
+    // Prevent path traversal 
+    if(strstr(url, "..") != NULL || strchr(url, '~') != NULL)
+    {
+        response.Status = HTTP_STATUS::FORBIDDEN;
+        response.Content = strdup("<h1>403 Forbidden!");
+        response.ContentSize = strlen(response.Content);
+        return response;
+    }
+    const char* fileName = strcmp(url, "/") == 0 ? "index" : url + 1; // skip the first / in url
+    char finalFileName[100];
+    int pathLen = snprintf(finalFileName, sizeof(finalFileName), "../html/%s.html", fileName);
+    if(pathLen >= sizeof(finalFileName))
+    {
+        printf("sizeof final name : %lu strlen : %lu", sizeof(finalFileName), strlen(finalFileName));
+        response.Status = HTTP_STATUS::URI_TOO_LONG;
+        response.Content = strdup("<h1>414 URI_TOO_LONG..!</h1>");
+        response.ContentSize = strlen(response.Content);
+        return response;
+    }
+    TOLOWER(finalFileName);
+    FILE* htmlFile = fopen(finalFileName, "r");
+    if(htmlFile == NULL)
+    {
+        perror("fopen");
+        response.Status = HTTP_STATUS::NOT_FOUND;
+        response.Content = strdup("<h1>404 NOT FOUND..!</h1>");
+        response.ContentSize = strlen(response.Content);
+        return response;
+    }
+    if(fseek(htmlFile, 0, SEEK_END) == -1)
+    {
+        fclose(htmlFile);
+        perror("fseek:");
+        response.Status = HTTP_STATUS::INTERNAL_SERVER_ERROR;
+        response.Content = strdup("<h1>500 INTERNAL SERVER ERROR</h1>");
+        response.ContentSize = strlen(response.Content);
+        return response;
+    }
+    long fileSize = ftell(htmlFile);
+    if(fileSize == -1 || fileSize >= 10 * 1024 * 1024) // limit the file to 10MB
+    {
+        fclose(htmlFile);
+        perror("ftell:");
+        response.Status = HTTP_STATUS::INTERNAL_SERVER_ERROR;
+        response.Content = strdup("<h1>500 INTERNAL SERVER ERROR</h1>");
+        response.ContentSize = strlen(response.Content);
+        return response;
+    }
+    fseek(htmlFile, 0, SEEK_SET); // go back to the beginning of the file
+                                  
+    response.Content = (char*)malloc(fileSize + 1); // 1 for null term
+    if(!response.Content) 
+    {
+        fclose(htmlFile);
+        response.Status = HTTP_STATUS::INTERNAL_SERVER_ERROR;
+        response.Content = strdup("<h1>500 INTERNAL SERVER ERROR</h1>");
+        response.ContentSize = strlen(response.Content);
+        return response;
+    }
+    size_t bytesRead = fread(response.Content, sizeof(char), fileSize, htmlFile);
+    fclose(htmlFile);
+    if(bytesRead != fileSize)
+    {
+        free(response.Content);
+        response.Status = HTTP_STATUS::INTERNAL_SERVER_ERROR;
+        response.Content = strdup("<h1>500 INTERNAL SERVER ERROR</h1>");
+        response.ContentSize = strlen(response.Content);
+        return response;
+    }
+    response.Content[fileSize] = '\0';
+    response.ContentSize = fileSize;
+    response.Status = HTTP_STATUS::OK;
+    return response;
+}
+void SendHttpResponse(int sockfd, HttpResponse& response)
+{
+    char headers[1024];
+    int headersLen = sprintf(headers, 
+            "HTTP/1.1 %d %s \r\n"
+            "Content-Type: %s\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n",
+            (uint16_t)response.Status,
+            GetStatusText(response.Status),
+            response.ContentType,
+            response.ContentSize);
+    if(headersLen > sizeof(headers))
+    {
+        perror("Server: Header allocation failed");
+        return;
+    }
+    if(send(sockfd, headers, headersLen, MSG_MORE) == -1)
+    {
+        perror("Server: Send");
+        return;
+    }
+
+    if(response.Content && response.ContentSize > 0)
+    {
+        if(send(sockfd, response.Content, response.ContentSize, 0) == -1)
+        {
+            perror("Server: Send");
+        }
+    }
+}
+
+const char* GetStatusText(HTTP_STATUS status)
+{
+    switch(status) 
+    {
+
+        case HTTP_STATUS::OK: return "OK";
+        case HTTP_STATUS::CREATED: return "CREATED";
+        case HTTP_STATUS::ACCEPTED: return "Accepted";
+        case HTTP_STATUS::NO_CONTENT: return "No Content";
+        case HTTP_STATUS::MOVED_PERMANENTLY: return "Moved Permanently";
+        case HTTP_STATUS::BAD_REQUEST: return "Bad Request";
+        case HTTP_STATUS::FORBIDDEN: return "Forbidden";
+        case HTTP_STATUS::NOT_FOUND: return "Not Found";
+        case HTTP_STATUS::METHOD_NOT_ALLOWED: return "Method Not Allowed";
+        case HTTP_STATUS::REQUEST_IS_BIG:
+        case HTTP_STATUS::URI_TOO_LONG:
+        case HTTP_STATUS::INTERNAL_SERVER_ERROR: return "Internal Server Error";
+          break;
+        }
+}
+
+void CleanupHttpRequest(HttpResponse& response)
+{
+    if(response.Content != NULL)
+    {
+        free(response.Content);
+        response.Content = NULL;
+    }
+}
